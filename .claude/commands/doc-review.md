@@ -1,0 +1,1 @@
+Review the documentation  file in the planning folder called $ARGUMENTS and questions, clarifications or feedback to a new section at the end, along with any new opportunities to simplify.
