@@ -58,7 +58,9 @@ class TestMassiveDataSource:
         good_snap = _make_snapshot("AAPL", 190.50, 1707580800000)
         bad_snap = MagicMock()
         bad_snap.ticker = "BAD"
-        bad_snap.last_trade = None  # Will cause AttributeError
+        bad_snap.last_trade = None  # Free-tier: no last trade
+        bad_snap.day = None         # No intraday data either
+        bad_snap.prev_day = None    # No prev-day data — truly unparseable
 
         with patch.object(source, "_fetch_snapshots", return_value=[good_snap, bad_snap]):
             await source._poll_once()

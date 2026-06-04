@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from massive import RESTClient
 from massive.rest.models import SnapshotMarketType
@@ -97,22 +98,13 @@ class MassiveDataSource(MarketDataSource):
             snapshots = await asyncio.to_thread(self._fetch_snapshots)
             processed = 0
             for snap in snapshots:
-                try:
-                    price = snap.last_trade.price
-                    # Massive timestamps are Unix milliseconds → convert to seconds
-                    timestamp = snap.last_trade.timestamp / 1000.0
-                    self._cache.update(
-                        ticker=snap.ticker,
-                        price=price,
-                        timestamp=timestamp,
-                    )
-                    processed += 1
-                except (AttributeError, TypeError) as e:
-                    logger.warning(
-                        "Skipping snapshot for %s: %s",
-                        getattr(snap, "ticker", "???"),
-                        e,
-                    )
+                result = self._extract_price(snap)
+                if result is None:
+                    logger.warning("Skipping snapshot for %s: no price field available", getattr(snap, "ticker", "???"))
+                    continue
+                price, timestamp = result
+                self._cache.update(ticker=snap.ticker, price=price, timestamp=timestamp)
+                processed += 1
             logger.debug("Massive poll: updated %d/%d tickers", processed, len(self._tickers))
 
         except Exception as e:
@@ -126,3 +118,26 @@ class MassiveDataSource(MarketDataSource):
             market_type=SnapshotMarketType.STOCKS,
             tickers=self._tickers,
         )
+
+    @staticmethod
+    def _extract_price(snap) -> tuple[float, float] | None:
+        """Return (price, timestamp_seconds) from a snapshot, trying fields in order.
+
+        Free-tier keys omit last_trade; fall back to day.close then prev_day.close.
+        """
+        try:
+            if snap.last_trade and snap.last_trade.price:
+                return snap.last_trade.price, snap.last_trade.timestamp / 1000.0
+        except (AttributeError, TypeError):
+            pass
+        try:
+            if snap.day and snap.day.close:
+                return snap.day.close, time.time()
+        except (AttributeError, TypeError):
+            pass
+        try:
+            if snap.prev_day and snap.prev_day.close:
+                return snap.prev_day.close, time.time()
+        except (AttributeError, TypeError):
+            pass
+        return None
